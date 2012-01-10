@@ -105,16 +105,16 @@ public class AnalyzePlaces {
                 }
             }
 
+            int lastCommaIndx = nextLine.lastIndexOf(",");
+            String lastWord = nextLine.substring(lastCommaIndx + 1).trim();
+            if (lastWord.length() > 0) {
+                endingsOfPlacesCC.add(lastWord);
+                endingsOfPlacesTotalCount++;
+            }
+
             if (lineCount % REVERSE_EVERY_N == 0) {
                 StringBuilder reversedWord = new StringBuilder(nextLine);
                 reversedWordsWriter.println(reversedWord.reverse());
-
-                int lastCommaIndx = nextLine.lastIndexOf(",");
-                String lastWord = nextLine.substring(lastCommaIndx + 1).trim();
-                if (lastWord.length() > 0) {
-                    endingsOfPlacesCC.add(lastWord);
-                    endingsOfPlacesTotalCount++;
-                }
             }
         }
 
