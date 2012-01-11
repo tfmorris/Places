@@ -16,7 +16,7 @@
 
 package org.folg.places.service;
 
-import org.folg.places.standardize.StandardizeResult;
+import org.folg.places.standardize.Place;
 import org.folg.places.standardize.Standardizer;
 
 import javax.ws.rs.GET;
@@ -33,18 +33,16 @@ public class StandardizeService {
    @GET
    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
    @Path("{text}")
-   public StandardizeResult get(@PathParam("text") String text) {
-      StandardizeResult result = Standardizer.getInstance().standardize(text);
-      result.setName(text);
+   public Place get(@PathParam("text") String text) {
+      Place result = Standardizer.getInstance().standardize(text);
       return result;
    }
 
    @GET
    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
    @Path("{text}/{defaultCountry}")
-   public StandardizeResult get(@PathParam("text") String text, @PathParam("defaultCountry") String defaultCountry) {
-      StandardizeResult result = Standardizer.getInstance().standardize(text, defaultCountry);
-      result.setName(text);
+   public Place get(@PathParam("text") String text, @PathParam("defaultCountry") String defaultCountry) {
+      Place result = Standardizer.getInstance().standardize(text, defaultCountry);
       return result;
    }
 }

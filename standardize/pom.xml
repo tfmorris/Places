@@ -20,6 +20,7 @@
             <descriptorRefs>
                 <descriptorRef>jar-with-dependencies</descriptorRef>
             </descriptorRefs>
+            <finalName>places-standardize</finalName>
           </configuration>
           <executions>
             <execution>

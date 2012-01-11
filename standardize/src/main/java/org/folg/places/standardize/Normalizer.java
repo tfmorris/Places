@@ -47,7 +47,7 @@ public class Normalizer {
    }
 
    /**
-    * Tokenize name by removing diacritics, lowercasing, splitting on delimiter, and removing non a-z characters
+    * Tokenize name by removing diacritics, lowercasing, and splitting on non alphanumeric characters
     *
     * @param text string to tokenize
     * @return tokenized place levels
@@ -61,9 +61,12 @@ public class Normalizer {
 
       StringBuilder numBuf = new StringBuilder();
 
-      for (int j = text.length() - 1; j >= 0; j--) {
-         char c = text.charAt(j);
+      // find the last letter
+      int lastPos = text.length()-1;
+      while (lastPos >= 0) {
+         char c = text.charAt(lastPos);
 
+         // not sure why we're keeping ending numbers?
          if (c >= '0' && c <= '9') {
             numBuf.append(c);
          } else if (c == ',') {
@@ -75,23 +78,18 @@ public class Normalizer {
             //if we hit letters before we hit a comma then the numbers contains a word and we want to keep it
             break;
          }
-
+         lastPos--;
       }
 
       List<String> levelWords = new ArrayList<String>();
       StringBuilder buf = new StringBuilder();
 
-      for (int i = 0; i < text.length(); i++) {
+      // parse up to and including the last letter; anything after that is junk
+      for (int i = 0; i <= lastPos; i++) {
          char c = text.charAt(i);
          String replacement;
 
-         if (c == ' ') {
-            if (buf.length() > 0) {
-               levelWords.add(buf.toString());
-               buf.setLength(0);
-            }
-         }
-         else if (c == ',') {
+         if (c == ',') {
             if (buf.length() > 0) {
                levelWords.add(buf.toString());
                buf.setLength(0);
@@ -114,6 +112,13 @@ public class Normalizer {
                logger.warning("Untokenized letter:" + c + " (" + (int) c + ") in " + text);
             }
          }
+         // tokenize words on non-alphanumeric
+         else {
+            if (buf.length() > 0) {
+               levelWords.add(buf.toString());
+               buf.setLength(0);
+            }
+         }
       }
       if (buf.length() > 0) {
          levelWords.add(buf.toString());
@@ -126,5 +131,37 @@ public class Normalizer {
       normalizeResults.setLevels(levels);
 
       return normalizeResults;
+   }
+
+   /**
+    * Remove diacritics, lowercase, and remove non alphanumeric characters
+    *
+    * @param text string to tokenize
+    * @return tokenized place levels
+    */
+   public String normalize(String text) {
+      StringBuilder buf = new StringBuilder();
+
+      for (int i = 0; i < text.length(); i++) {
+         char c = text.charAt(i);
+         String replacement;
+
+         if ((replacement = characterReplacements.get(c)) != null) {
+            buf.append(replacement.toLowerCase());
+         } else if (c >= 'A' && c <= 'Z') {
+            buf.append(Character.toLowerCase(c));
+         } else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            buf.append(c);
+         } else if (Character.isLetter(c)) {
+            // ignore letters > U+0250; they're generally from scripts that don't map well to roman letters
+            // ignore 186,170: superscript o and a used in spanish numbers: 1^a and 2^o
+            // ignore 440,439: Ezh and reverse-Ezh; the only times they appear in the data is in what appears to be noise
+            if (c < 592 && c != 186 && c != 170 && c != 439 && c != 440) {
+               logger.warning("Untokenized letter:" + c + " (" + (int) c + ") in " + text);
+            }
+         }
+      }
+
+      return buf.toString();
    }
 }
