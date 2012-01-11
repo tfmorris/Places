@@ -78,6 +78,12 @@ public class CountsCollector {
       add(key, 1);
    }
 
+   public void addAll(List<String> keys) {
+      for (String key : keys) {
+         add(key, 1);
+      }
+   }
+
    public void add(String key, int count) {
       if (key != null) {
          Counter c = counts.get(key);

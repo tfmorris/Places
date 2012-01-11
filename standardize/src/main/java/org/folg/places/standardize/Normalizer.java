@@ -26,7 +26,7 @@ import java.util.logging.Logger;
 public class Normalizer {
    private static Logger logger = Logger.getLogger("org.folg.places.search");
    private static Normalizer normalizer = new Normalizer();
-   private final Map<Character,String> characterReplacements;
+   private final Map<Character, String> characterReplacements;
 
    public static Normalizer getInstance() {
       return normalizer;
@@ -37,7 +37,7 @@ public class Normalizer {
       try {
          Properties props = new Properties();
          props.load(new InputStreamReader(getClass().getClassLoader().getResourceAsStream("normalizer.properties"), "UTF8"));
-         characterReplacements = new HashMap<Character,String>();
+         characterReplacements = new HashMap<Character, String>();
          for (String replacement : props.getProperty("characterReplacements").split(",")) {
             characterReplacements.put(replacement.charAt(0), replacement.substring(2));
          }
@@ -48,44 +48,83 @@ public class Normalizer {
 
    /**
     * Tokenize name by removing diacritics, lowercasing, splitting on delimiter, and removing non a-z characters
+    *
     * @param text string to tokenize
     * @return tokenized place levels
     */
-   public List<String> tokenize(String text) {
+   public NormalizeResults tokenize(String text) {
+
+      NormalizeResults normalizeResults = new NormalizeResults();
+
       // remove diacritics, lowercase, split on delimiters, remove non-alphanumeric?
-      List<String> levels = new ArrayList<String>();
+      List<List<String>> levels = new ArrayList<List<String>>();
+
+      StringBuilder numBuf = new StringBuilder();
+
+      for (int j = text.length() - 1; j >= 0; j--) {
+         char c = text.charAt(j);
+
+         if (c >= '0' && c <= '9') {
+            numBuf.append(c);
+         } else if (c == ',') {
+            if (numBuf.length() > 0) {
+               normalizeResults.setEndingNumbers(numBuf.toString());
+               break;
+            }
+         } else if ((c >= 'A' && c <= 'z') || (c > 127)) {
+            //if we hit letters before we hit a comma then the numbers contains a word and we want to keep it
+            break;
+         }
+
+      }
+
+      List<String> levelWords = new ArrayList<String>();
       StringBuilder buf = new StringBuilder();
 
       for (int i = 0; i < text.length(); i++) {
          char c = text.charAt(i);
          String replacement;
-         if (c == ',') {
+
+         if (c == ' ') {
             if (buf.length() > 0) {
-               levels.add(buf.toString());
+               levelWords.add(buf.toString());
                buf.setLength(0);
             }
          }
-         else if ((replacement = characterReplacements.get(c)) != null) {
+         else if (c == ',') {
+            if (buf.length() > 0) {
+               levelWords.add(buf.toString());
+               buf.setLength(0);
+            }
+            if (levelWords.size() > 0) {
+               levels.add(levelWords);
+               levelWords = new ArrayList<String>();
+            }
+         } else if ((replacement = characterReplacements.get(c)) != null) {
             buf.append(replacement.toLowerCase());
-         }
-         else if (c >= 'A' && c <= 'Z') {
+         } else if (c >= 'A' && c <= 'Z') {
             buf.append(Character.toLowerCase(c));
-         }
-         else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+         } else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
             buf.append(c);
-         }
-         else if (Character.isLetter(c)) {
+         } else if (Character.isLetter(c)) {
             // ignore letters > U+0250; they're generally from scripts that don't map well to roman letters
             // ignore 186,170: superscript o and a used in spanish numbers: 1^a and 2^o
             // ignore 440,439: Ezh and reverse-Ezh; the only times they appear in the data is in what appears to be noise
-            if (c < 592 && c!=186 && c!=170 && c!=439 && c!=440) {
-               logger.warning("Untokenized letter:"+c+" ("+(int)c+") in "+text);
+            if (c < 592 && c != 186 && c != 170 && c != 439 && c != 440) {
+               logger.warning("Untokenized letter:" + c + " (" + (int) c + ") in " + text);
             }
          }
       }
       if (buf.length() > 0) {
-         levels.add(buf.toString());
+         levelWords.add(buf.toString());
       }
-      return levels;
+
+      if (levelWords.size() > 0) {
+         levels.add(levelWords);
+      }
+
+      normalizeResults.setLevels(levels);
+
+      return normalizeResults;
    }
 }

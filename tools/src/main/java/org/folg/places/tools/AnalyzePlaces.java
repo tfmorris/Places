@@ -17,12 +17,15 @@
 package org.folg.places.tools;
 
 import org.apache.commons.lang.math.NumberUtils;
+import org.folg.places.standardize.NormalizeResults;
+import org.folg.places.standardize.Normalizer;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 import org.xml.sax.SAXParseException;
 
 import java.io.*;
+import java.util.List;
 
 /**
  * User: RyanK
@@ -30,16 +33,16 @@ import java.io.*;
  */
 public class AnalyzePlaces {
 
-    @Option(name = "-i", required = true, usage = "places file in")
-    private File placesIn;
+   @Option(name = "-i", required = true, usage = "places file in")
+   private File placesIn;
 
-    @Option(name = "-o", required = false, usage = "directory for analysis file output")
+   @Option(name = "-o", required = false, usage = "directory for analysis file output")
    private File analysisPlacesOut;
 
-    // break apart words, so North Grinston is split into separate words
-    private static String SPLIT_REGEX = "[, ]+";
+   // break apart words, so North Grinston is split into separate words
+   private static String SPLIT_REGEX = "[, ]+";
 
-    private int REVERSE_EVERY_N = 10;
+   private int REVERSE_EVERY_N = 10;
 
    private CountsCollector placesCountCC;
    private int totalPlacesCount;
@@ -47,122 +50,187 @@ public class AnalyzePlaces {
    private CountsCollector wordsCountCC;
    private int totalWordsCount;
 
-    private CountsCollector numbersCountCC;
-    private int totalNumbersCount;
+   private CountsCollector numbersCountCC;
+   private int totalNumbersCount;
 
-    private CountsCollector endingsOfPlacesCC;
-    private int endingsOfPlacesTotalCount;
+   private CountsCollector endingsOfPlacesCC;
+   private int endingsOfPlacesTotalCount;
 
-    public AnalyzePlaces() {
-       placesCountCC = new CountsCollector();
-       totalPlacesCount = 0;
+   /**
+    * This section controls the Normalizer Tokenizer in the analysis *
+    */
+   private boolean useTokenizer = true;
 
-       wordsCountCC = new CountsCollector();
-       totalWordsCount = 0;
+   private CountsCollector tokenizerPlacesCountCC;
+   private int totalTokenizerPlacesCount;
 
-        numbersCountCC = new CountsCollector();
-        totalNumbersCount = 0;
+   private CountsCollector tokenizerNumbersCountCC;
+   private int totalTokenizerNumbersCount;
 
-        endingsOfPlacesCC = new CountsCollector();
-        endingsOfPlacesTotalCount = 0;
+   //The total number of lines to test in the places file
+   //when the tokenizer is turned on things get significantly slower so
+   private int TOKENIZE_EVERY_N = 1;
 
-    }
 
-    private void doMain() throws SAXParseException, IOException {
 
-        PrintWriter reversedWordsWriter = analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "reversedWords.txt")) : new PrintWriter(System.out);
+   public AnalyzePlaces() {
+      placesCountCC = new CountsCollector();
+      totalPlacesCount = 0;
 
-        BufferedReader bufferedReader = new BufferedReader(new FileReader(placesIn));
+      wordsCountCC = new CountsCollector();
+      totalWordsCount = 0;
 
-        int lineCount = 0;
-        while (bufferedReader.ready()) {
-            String nextLine = bufferedReader.readLine();
-            nextLine = nextLine.trim().toLowerCase();
-            if (nextLine.length() == 0)
-                continue;
+      numbersCountCC = new CountsCollector();
+      totalNumbersCount = 0;
 
-            lineCount++;
-            if (lineCount % 5000 == 0)
-                System.out.println("indexing line " + lineCount);
+      endingsOfPlacesCC = new CountsCollector();
+      endingsOfPlacesTotalCount = 0;
 
-            placesCountCC.add(nextLine);
-            totalPlacesCount++;
+      if (useTokenizer) {
+         tokenizerPlacesCountCC = new CountsCollector();
+         totalTokenizerPlacesCount = 0;
 
-            String[] placeList = nextLine.split(SPLIT_REGEX);
+         tokenizerNumbersCountCC = new CountsCollector();
+         totalTokenizerNumbersCount = 0;
 
-            for (String place : placeList) {
-                place = place.trim();
+      }
+   }
 
-                if (place.length() == 0)
-                    continue;
+   private void doMain() throws SAXParseException, IOException {
 
-                if (NumberUtils.isNumber(place)) {
-                    numbersCountCC.add(place);
-                    totalNumbersCount++;
-                } else {
-                    wordsCountCC.add(place);
-                    totalWordsCount++;
-                }
+      Normalizer normalizer = null;
+      if (useTokenizer) {
+         normalizer = Normalizer.getInstance();
+      }
+
+
+      PrintWriter reversedWordsWriter = analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "reversedWords.txt")) : new PrintWriter(System.out);
+
+      BufferedReader bufferedReader = new BufferedReader(new FileReader(placesIn));
+
+      int lineCount = 0;
+      while (bufferedReader.ready()) {
+         String nextLine = bufferedReader.readLine();
+         nextLine = nextLine.trim().toLowerCase();
+         if (nextLine.length() == 0)
+            continue;
+
+         lineCount++;
+         if (lineCount % 5000 == 0)
+            System.out.println("indexing line " + lineCount);
+
+         placesCountCC.add(nextLine);
+         totalPlacesCount++;
+
+         String[] placeList = nextLine.split(SPLIT_REGEX);
+
+         for (String place : placeList) {
+            place = place.trim();
+
+            if (place.length() == 0)
+               continue;
+
+            if (NumberUtils.isNumber(place)) {
+               numbersCountCC.add(place);
+               totalNumbersCount++;
+            } else {
+               wordsCountCC.add(place);
+               totalWordsCount++;
+            }
+         }
+
+         int lastCommaIndx = nextLine.lastIndexOf(",");
+         String lastWord = nextLine.substring(lastCommaIndx + 1).trim();
+         if (lastWord.length() > 0) {
+            endingsOfPlacesCC.add(lastWord);
+            endingsOfPlacesTotalCount++;
+         }
+
+         if (lineCount % REVERSE_EVERY_N == 0) {
+            StringBuilder reversedWord = new StringBuilder(nextLine);
+            reversedWordsWriter.println(reversedWord.reverse());
+         }
+
+         if ( (useTokenizer) && (lineCount % TOKENIZE_EVERY_N == 0) ){
+            NormalizeResults normalizedResults = normalizer.tokenize(nextLine);
+            String endingNumbers = normalizedResults.getEndingNumbers();
+            if (endingNumbers != null) {
+               tokenizerNumbersCountCC.add(endingNumbers);
+               totalTokenizerNumbersCount++;
             }
 
-            int lastCommaIndx = nextLine.lastIndexOf(",");
-            String lastWord = nextLine.substring(lastCommaIndx + 1).trim();
-            if (lastWord.length() > 0) {
-                endingsOfPlacesCC.add(lastWord);
-                endingsOfPlacesTotalCount++;
+            List<List<String>> levels = normalizedResults.getLevels();
+            for (List<String> levelWords : levels) {
+               tokenizerPlacesCountCC.addAll(levelWords);
+               totalTokenizerPlacesCount += levelWords.size();
             }
+         }
+      }
 
-            if (lineCount % REVERSE_EVERY_N == 0) {
-                StringBuilder reversedWord = new StringBuilder(nextLine);
-                reversedWordsWriter.println(reversedWord.reverse());
-            }
-        }
+      System.out.println("total number of lines in files " + lineCount);
 
-        System.out.println("total number of lines in files " + lineCount);
+      System.out.println("Indexed a total of " + totalPlacesCount + " places.");
+      System.out.println("Found a total of " + getPlacesCountCC().size() + " unique places.");
+      getPlacesCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "placesCount.txt")) : new PrintWriter(System.out));
 
-        System.out.println("Indexed a total of " + totalPlacesCount + " places.");
-        System.out.println("Found a total of " + getPlacesCountCC().size() + " unique places.");
-        getPlacesCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "placesCount.txt")) : new PrintWriter(System.out));
+      System.out.println("Indexed a total of " + totalWordsCount + " words.");
+      System.out.println("Found a total of " + getWordsCountCC().size() + " unique words.");
+      getWordsCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "wordsCount.txt")) : new PrintWriter(System.out));
 
-        System.out.println("Indexed a total of " + totalWordsCount + " words.");
-        System.out.println("Found a total of " + getWordsCountCC().size() + " unique words.");
-        getWordsCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "wordsCount.txt")) : new PrintWriter(System.out));
-
-        System.out.println("Indexed a total of " + totalNumbersCount + " numbers.");
-        System.out.println("Found a total of " + getNumbersCountCC().size() + " unique numbers.");
-        getNumbersCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "numbersCount.txt")) : new PrintWriter(System.out));
+      System.out.println("Indexed a total of " + totalNumbersCount + " numbers.");
+      System.out.println("Found a total of " + getNumbersCountCC().size() + " unique numbers.");
+      getNumbersCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "numbersCount.txt")) : new PrintWriter(System.out));
 
 
-        System.out.println("Indexed a total of " + endingsOfPlacesTotalCount + " endings.");
-        System.out.println("Found a total of " + getEndingsOfPlacesCC().size() + " unique endings.");
-        getEndingsOfPlacesCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "endingsCount.txt")) : new PrintWriter(System.out));
-    }
+      System.out.println("Indexed a total of " + endingsOfPlacesTotalCount + " endings.");
+      System.out.println("Found a total of " + getEndingsOfPlacesCC().size() + " unique endings.");
+      getEndingsOfPlacesCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "endingsCount.txt")) : new PrintWriter(System.out));
 
-    public CountsCollector getPlacesCountCC() {
-        return placesCountCC;
-    }
+      if (useTokenizer) {
+         System.out.println("Indexed a total of " + totalTokenizerNumbersCount + " normalized endings.");
+         System.out.println("Found a total of " + getTokenizerNumbersCountCC().size() + " normalized endings.");
+         getTokenizerNumbersCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "normalizedEndingsCount.txt")) : new PrintWriter(System.out));
 
-    public CountsCollector getWordsCountCC() {
-        return wordsCountCC;
-    }
+         System.out.println("Indexed a total of " + totalTokenizerPlacesCount + " normalized words.");
+         System.out.println("Found a total of " + getTokenizerPlacesCountCC().size() + " normalized words.");
+         getTokenizerPlacesCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "normalizedWordsCount.txt")) : new PrintWriter(System.out));
+      }
 
-    public CountsCollector getNumbersCountCC() {
-        return numbersCountCC;
-    }
+   }
 
-    public CountsCollector getEndingsOfPlacesCC() {
-        return endingsOfPlacesCC;
-    }
+   public CountsCollector getPlacesCountCC() {
+      return placesCountCC;
+   }
 
-    public static void main(String[] args) throws SAXParseException, IOException {
-        AnalyzePlaces self = new AnalyzePlaces();
-        CmdLineParser parser = new CmdLineParser(self);
-        try {
-            parser.parseArgument(args);
-            self.doMain();
-        } catch (CmdLineException e) {
-            System.err.println(e.getMessage());
-            parser.printUsage(System.err);
-        }
-    }
+   public CountsCollector getWordsCountCC() {
+      return wordsCountCC;
+   }
+
+   public CountsCollector getNumbersCountCC() {
+      return numbersCountCC;
+   }
+
+   public CountsCollector getEndingsOfPlacesCC() {
+      return endingsOfPlacesCC;
+   }
+
+   public CountsCollector getTokenizerPlacesCountCC() {
+      return tokenizerPlacesCountCC;
+   }
+
+   public CountsCollector getTokenizerNumbersCountCC() {
+      return tokenizerNumbersCountCC;
+   }
+
+   public static void main(String[] args) throws SAXParseException, IOException {
+      AnalyzePlaces self = new AnalyzePlaces();
+      CmdLineParser parser = new CmdLineParser(self);
+      try {
+         parser.parseArgument(args);
+         self.doMain();
+      } catch (CmdLineException e) {
+         System.err.println(e.getMessage());
+         parser.printUsage(System.err);
+      }
+   }
 }
