@@ -36,6 +36,7 @@ public class Place {
    private double latitude = 0.0;
    private double longitude = 0.0;
    private Standardizer standardizer = null;
+   private double score;
 
    public int getId() {
       return id;
@@ -119,6 +120,14 @@ public class Place {
 
    void setStandardizer(Standardizer standardizer) {
       this.standardizer = standardizer;
+   }
+
+   public double getScore() {
+      return score;
+   }
+
+   public void setScore(double score) {
+      this.score = score;
    }
 
    @XmlElement

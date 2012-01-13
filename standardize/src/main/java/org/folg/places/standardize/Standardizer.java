@@ -246,6 +246,9 @@ public class Standardizer {
 
    private boolean checkAncestorMatch(int id, List<Integer> ids) {
       Place p = lookupPlace(id);
+      if (p == null)
+         return false;
+
       int locatedInId = p.getLocatedInId();
       if (locatedInId > 0) {
          if (ids.contains(locatedInId) || checkAncestorMatch(locatedInId, ids)) {
@@ -350,7 +353,7 @@ public class Standardizer {
       return false;
    }
 
-   public Place standardize(String text, String defaultCountry) {
+   public List<Place> standardize(String text, String defaultCountry, int numResults) {
       List<List<String>> levelWords = normalizer.tokenize(text).getLevels();
       List<Integer> currentIds = null;
       String currentNameToken = null;
@@ -400,13 +403,14 @@ public class Standardizer {
          }
       }
 
-      Place result = null;
+      List<Place> results = new ArrayList<Place>();
       // if we have no matches, return empty
       if (currentIds == null) {
          if (levelWords.size() > 0) {
             logger.info("no place found: "+text);
          }
-         result = new Place();
+         Place result = new Place();
+         results.add(result);
       }
       else {
          // if we have multiple matches and a default country, filter subplaces of the default country
@@ -416,26 +420,67 @@ public class Standardizer {
 
          // if we have still have multiple matches, score them and return the highest-scoring one
          if (currentIds.size() > 1) {
-            double highestScore = Double.NEGATIVE_INFINITY;
+
+           // PriorityQueue does not maintain proper order, but why?
+           // PriorityQueue<Place> placeQueue = new PriorityQueue<Place>(currentIds.size(), comparePlaces());
+
+            List<Place> tempList = new ArrayList<Place>();
+
             for (int id : currentIds) {
                Place p = lookupPlace(id);
+               if (p == null)
+                  continue;
                double score = scoreMatch(currentNameToken, p);
-               if (score > highestScore) {
-                  result = p;
-                  highestScore = score;
-               }
+               p.setScore(score);
+               tempList.add(p);
+            }
+
+            Collections.sort(tempList, comparePlaces());
+            if (numResults == -1) {
+               results.add(tempList.get(0));
+            }else if ( currentIds.size() >= numResults) {
+               results.addAll(tempList.subList(0,numResults));
+            }
+            else {
+               results.addAll(tempList);
             }
          }
          else {
-            result = lookupPlace(currentIds.get(0));
+            Place result = lookupPlace(currentIds.get(0));
+            results.add(result);
          }
       }
 
       // We don't normally set
-      return result;
+      return results;
+   }
+
+   public List<Place> standardize(String text, int numResults) {
+      return standardize(text, null, numResults);
    }
 
    public Place standardize(String text) {
       return standardize(text, null);
    }
+
+   public Place standardize(String text, String defaultCountry) {
+      List<Place> results = standardize(text, defaultCountry, -1);
+      Place p = new Place();
+      if (results.size() > 0) {
+         p = results.get(0);
+      }
+      return p;
+   }
+
+   private Comparator<Place> comparePlaces() {
+      return new Comparator<Place>() {
+         @Override
+         public int compare(Place pOne, Place pTwo) {
+            //we want a reverse list, so compare two to one to get highest scores first
+            Double pOneScore = pOne.getScore();
+            return new Double(pTwo.getScore()).compareTo(pOneScore);
+         }
+      };
+   }
+
 }

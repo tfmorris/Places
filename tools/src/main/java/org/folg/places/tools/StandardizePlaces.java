@@ -24,6 +24,7 @@ import org.kohsuke.args4j.Option;
 import org.xml.sax.SAXParseException;
 
 import java.io.*;
+import java.util.List;
 
 /**
  * User: dallan
@@ -40,7 +41,12 @@ public class StandardizePlaces {
    @Option(name = "-n", required = false, usage = "number of places to standardize")
    private int maxPlaces = 0;
 
+   @Option(name = "-t", required = false, usage = "number of results to show.  default is to only show the top result")
+   private int numResults = 0;
+
    private Standardizer standardizer;
+
+   private boolean printAlsoLocatedIns = true;
 
    public StandardizePlaces() {
       standardizer = Standardizer.getInstance();
@@ -54,8 +60,20 @@ public class StandardizePlaces {
       while (bufferedReader.ready()) {
          String nextLine = bufferedReader.readLine();
 
-         Place p = standardizer.standardize(nextLine);
-         placesWriter.println(p.getFullName()+" | "+nextLine);
+         if (numResults == 0) {
+            Place p = standardizer.standardize(nextLine);
+            placesWriter.println(p.getFullName() + " | " + nextLine);
+            printAlsoLocatedIns(placesWriter, p);
+         }
+         else {
+            List<Place> results = standardizer.standardize(nextLine, numResults);
+            placesWriter.println(nextLine);
+            for (Place p : results) {
+               placesWriter.println("\t" + p.getFullName());
+               printAlsoLocatedIns(placesWriter, p);
+            }
+
+         }
 
          if (++lineCount == maxPlaces) {
             break;
@@ -64,6 +82,23 @@ public class StandardizePlaces {
 
       bufferedReader.close();
       placesWriter.close();
+   }
+
+   private void printAlsoLocatedIns(PrintWriter placesWriter, Place p) {
+      int[] alsoLocatedInIds = p.getAlsoLocatedInIds();
+      if ((printAlsoLocatedIns) && (alsoLocatedInIds != null) && (alsoLocatedInIds.length > 0)) {
+         StringBuffer alsoLocatedStrs = new StringBuffer();
+         for (int indx = 0; indx < alsoLocatedInIds.length; indx++) {
+            int alsoLocatedInId = alsoLocatedInIds[indx];
+            Place alsoLocatedPlace = standardizer.lookupPlace(alsoLocatedInId);
+            if (alsoLocatedStrs.length() > 0) {
+               alsoLocatedStrs.append(", ");
+            }
+            alsoLocatedStrs.append(alsoLocatedPlace.getFullName());
+         }
+         placesWriter.println("\talso located in = " + alsoLocatedStrs);
+
+      }
    }
 
    public static void main(String[] args) throws SAXParseException, IOException {
