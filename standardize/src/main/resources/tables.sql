@@ -1,6 +1,6 @@
 create table place_words (
   word varchar(255) not null default '',
-  ids varchar(65535),
+  ids varchar(8192),
   primary key (word)
 );
 create table places (

@@ -16,7 +16,12 @@
 
 package org.folg.places.tools;
 
-import java.io.PrintWriter;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+import org.kohsuke.args4j.Option;
+import org.xml.sax.SAXParseException;
+
+import java.io.*;
 import java.util.*;
 
 /**
@@ -26,7 +31,13 @@ import java.util.*;
  * Date: 1/2/12
  */
 public class CountsCollector {
-   HashMap<String,Counter> counts;
+   @Option(name = "-i", required = true, usage = "file in")
+   private File in;
+
+   @Option(name = "-o", required = false, usage = "file out")
+   private File out = null;
+
+   private HashMap<String,Counter> counts;
 
    public class Counter {
       int count;
@@ -160,5 +171,31 @@ public class CountsCollector {
          writer.println(entry.getKey() + "\t" + entry.getValue());
       }
       writer.flush();
+   }
+
+   private void doMain() throws IOException {
+      BufferedReader reader = new BufferedReader(new FileReader(in));
+      PrintWriter writer = out != null ? new PrintWriter(out) : new PrintWriter(System.out);
+      String line;
+
+      while ((line = reader.readLine()) != null) {
+         add(line);
+      }
+
+      writeSorted(false, 0, writer);
+
+      writer.close();
+   }
+
+   public static void main(String[] args) throws IOException {
+      CountsCollector self = new CountsCollector();
+      CmdLineParser parser = new CmdLineParser(self);
+      try {
+         parser.parseArgument(args);
+         self.doMain();
+      } catch (CmdLineException e) {
+         System.err.println(e.getMessage());
+         parser.printUsage(System.err);
+      }
    }
 }

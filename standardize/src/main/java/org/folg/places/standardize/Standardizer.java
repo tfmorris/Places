@@ -26,6 +26,7 @@ import javax.sql.DataSource;
 import java.io.*;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
@@ -33,7 +34,16 @@ import java.util.logging.Logger;
  * Date: 1/10/12
  */
 public class Standardizer {
+   /**
+    * Standardization mode:
+    * BEST=get the closest country
+    * REQUIRED=match must include the left-most level or not at all,
+    * NEW=BEST+1 -- if you can't include the next level to the left, return a fake place with it as the name
+    */
+   public static enum Mode { BEST, REQUIRED, NEW };
+
    private static Logger logger = Logger.getLogger("org.folg.places.standardize");
+   private static int USA_ID = 1500;
    private static Standardizer standardizer = new Standardizer();
 
    public static Standardizer getInstance() {
@@ -81,7 +91,7 @@ public class Standardizer {
             staticMC = new MemcachedClient(new DaemonBinaryConnectionFactory(),
                                            AddrUtil.getAddresses(memcacheAddresses));
          } catch (IOException e) {
-            logger.warning("Unable to initialize memcache client");
+            logger.severe("Unable to initialize memcache client");
          }
       }
       return staticMC;
@@ -90,6 +100,7 @@ public class Standardizer {
    private Normalizer normalizer = null;
    private Set<String> typeWords = null;
    private Map<String,String> abbreviations = null;
+   private Set<String> noiseWords = null;
    private Set<Integer> expectedCountries = null;
    private Map<Integer,Place> placeIndex = null;
    private Map<String,Integer[]> wordIndex = null;
@@ -97,6 +108,7 @@ public class Standardizer {
    private MemcachedClient memcachedClient = null;
    private String memcacheKeyPrefix = null;
    private int memcacheExpiration = 0;
+   private ErrorHandler errorHandler = null;
 
    private Standardizer() {
       normalizer = Normalizer.getInstance();
@@ -117,6 +129,9 @@ public class Standardizer {
             String[] fields = abbrMap.split("=");
             abbreviations.put(fields[0],fields[1]);
          }
+
+         // read noise words
+         noiseWords = new HashSet<String>(Arrays.asList(props.getProperty("noiseWords").split(",")));
 
          // read expectedCountries
          expectedCountries = new HashSet<Integer>();
@@ -227,6 +242,10 @@ public class Standardizer {
       }
    }
 
+   public void setErrorHandler(ErrorHandler errorHandler) {
+      this.errorHandler = errorHandler;
+   }
+
    // return null if word not found
    private List<Integer> lookupWord(String word) {
       Integer[] ids = wordIndex.get(word);
@@ -236,7 +255,7 @@ public class Standardizer {
       return null;
    }
 
-   public Place lookupPlace(int id) {
+   public Place getPlace(int id) {
       Place p = placeIndex.get(id);
       if (p == null) {
          logger.severe("Place not found: "+id);
@@ -244,8 +263,33 @@ public class Standardizer {
       return p;
    }
 
+   public String generatePlaceName(List<String> words) {
+      int len = words.size()-1;
+
+      // ignore type words at the end
+      // keep Cemetery as part of the full name (it's an exception; if there are others I'll create a property list)
+      while (len >= 0 && isTypeWord(words.get(len)) && !"cemetery".equals(words.get(len))) {
+         len--;
+      }
+      // if all words are type words, keep them all
+      if (len < 0) {
+         len = words.size()-1;
+      }
+
+      // join and capitalize
+      StringBuilder buf = new StringBuilder();
+      for (int i = 0; i <= len; i++) {
+         if (buf.length() > 0) {
+            buf.append(" ");
+         }
+         String word = words.get(i);
+         buf.append(word.substring(0,1).toUpperCase()+(word.length() > 1 ? word.substring(1).toLowerCase() : ""));
+      }
+      return buf.toString();
+   }
+
    private boolean checkAncestorMatch(int id, List<Integer> ids) {
-      Place p = lookupPlace(id);
+      Place p = getPlace(id);
       int locatedInId = p.getLocatedInId();
       if (locatedInId > 0) {
          if (ids.contains(locatedInId) || checkAncestorMatch(locatedInId, ids)) {
@@ -278,7 +322,7 @@ public class Standardizer {
       List<Integer> result = new ArrayList<Integer>();
 
       for (int id : ids) {
-         Place p = lookupPlace(id);
+         Place p = getPlace(id);
          String normalizedName = normalizer.normalize(p.getName());
          // does primary name contain the type words?
          if (normalizedName.indexOf(typeToken) >= 0) {
@@ -309,19 +353,35 @@ public class Standardizer {
       return primaryNameMatch * 5 + (6 - level) * 10 + expectedCountry * 2;
    }
 
+   public boolean isTypeWord(String word) {
+      String expansion = abbreviations.get(word);
+      if (expansion != null) {
+         word = expansion;
+      }
+      return typeWords.contains(word);
+   }
+
    // catenate all of the words together into one token, with ending type words in a second token
-   private String[] getNameTypeToken(List<String> words) {
+   private String[] getNameTypeToken(List<String> words, int wordsToSkip) {
       StringBuilder buf = new StringBuilder();
       String[] result = new String[2];
       result[0] = null; // name token
       result[1] = null; // type token (optional)
       boolean foundNameWord = false;
-      for (int i = words.size()-1; i >= 0; i--) {
+      for (int i = words.size()-1; i >= wordsToSkip; i--) {
          String word = words.get(i);
          if (word.length() > 0) {
-            String expansion = abbreviations.get(word);
-            if (expansion != null) {
-               word = expansion;
+            // skip everything before or or now
+            if (i > wordsToSkip && buf.length() > 0 && "or".equals(word) || "now".equals(word)) {
+               break;
+            }
+            // expand abbreviations only if there is >1 word in the phrase
+            // keeps from expanding places like No, Niigata, Japan into North
+            if (words.size() - wordsToSkip > 1) {
+               String expansion = abbreviations.get(word);
+               if (expansion != null) {
+                  word = expansion;
+               }
             }
             if (!typeWords.contains(word)) {
                // type words after a name word go into the type token position
@@ -340,32 +400,96 @@ public class Standardizer {
       return result;
    }
 
-   private static boolean hasDigit(String s) {
-      for (int i = 0; i < s.length(); i++) {
-         char c = s.charAt(i);
-         if (c >= '0' && c <= '9') {
+   private boolean containsNonNoiseWords(List<String> words) {
+      for (String word : words) {
+         if (!noiseWords.contains(word)) {
             return true;
          }
       }
       return false;
    }
 
-   public Place standardize(String text, String defaultCountry) {
+   private boolean containsNonNoiseLevels(List<List<String>> levelWords) {
+      for (List<String> words : levelWords) {
+         if (containsNonNoiseWords(words)) {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   // once you've matched a country or a US state, you can't skip over it
+   private boolean isSkippable(List<Integer> ids) {
+      for (int id : ids) {
+         Place p = getPlace(id);
+         if (p.getLevel() == 1 ||
+             (p.getLevel() == 2 && p.getCountry() == USA_ID)) {
+            return false;
+         }
+      }
+      return true;
+   }
+
+   private List<Integer> removeChildIds(List<Integer> currentIds) {
+      if (currentIds != null) {
+         List<Integer> ids = new ArrayList<Integer>();
+         for (int id : currentIds) {
+            if (!checkAncestorMatch(id, currentIds)) {
+               ids.add(id);
+            }
+         }
+         currentIds = ids;
+      }
+      return currentIds;
+   }
+
+   public Place standardize(String text, String defaultCountry, Mode mode) {
       List<List<String>> levelWords = normalizer.tokenize(text).getLevels();
       List<Integer> currentIds = null;
+      List<Integer> previousIds = null;
       String currentNameToken = null;
+      int lastFoundLevel = -1;
+      // log only the first error per place -- skipping words can result in multiple errors, but we want to log the whole phrase
+      boolean errorLogged = false;
 
       for (int level = levelWords.size()-1; level >= 0; level--) {
          List<String> words = levelWords.get(level);
-         String[] nameType = getNameTypeToken(words);
+         // if all words don't match, back off and insert left-hand words as a new level
+         // (for people who don't use commas)
+         int wordsToSkip = 0;
+         List<Integer> ids = null;
+         String[] nameType = null;
+         while (wordsToSkip < words.size()) {
+            nameType = getNameTypeToken(words, wordsToSkip);
 
-         // lookup name token
-         List<Integer> ids = lookupWord(nameType[0]);
+            // lookup name token
+            ids = lookupWord(nameType[0]);
+            if (ids != null) {
+               break;
+            }
+            wordsToSkip++;
+         }
+         if (ids != null && wordsToSkip > 0) {
+            List<String> newLevel = new ArrayList<String>();
+            for (int i = 0; i < wordsToSkip; i++) {
+               String word = words.get(i);
+               // don't push noise words or type words down to the lower level
+               // (does it hurt not to push type words down?)
+               if (!noiseWords.contains(word) && !isTypeWord(word)) {
+                  newLevel.add(word);
+               }
+            }
+            if (newLevel.size() > 0) {
+               levelWords.add(level, newLevel);
+               level++;
+            }
+         }
 
-         // didn't find any matches; log and ignore for now
+         // didn't find any matches; log and ignore
          if (ids == null) {
-            if (!hasDigit(nameType[0])) {
-               logger.info("Name not found: "+nameType[0]+" in: "+text);
+            if (errorHandler != null && !errorLogged && containsNonNoiseWords(words)) {
+               errorHandler.tokenNotFound(text, levelWords, level, removeChildIds(currentIds));
+               errorLogged = true;
             }
          }
          else {
@@ -373,69 +497,116 @@ public class Standardizer {
             boolean ignoreTypeToken = false;
             if (currentIds != null) {
                List<Integer> matchingIds = filterSubplaceMatches(ids, currentIds);
-               // didn't find any children; log and ignore for now
+               // didn't find any children; try ignoring the parent level and attaching to the grandparent level
+               if (matchingIds.size() == 0 && previousIds != null && previousIds.size() > 0 && isSkippable(currentIds)) {
+                  matchingIds = filterSubplaceMatches(ids, previousIds);
+                  if (matchingIds.size() > 0) {
+                     currentIds = previousIds;
+                     if (errorHandler != null && !errorLogged) {
+                        errorHandler.skippingParentLevel(text, levelWords, level, removeChildIds(matchingIds));
+                        errorLogged = true;
+                     }
+                  }
+               }
+
+               // still didn't find any children; log and ignore
                if (matchingIds.size() == 0) {
-                  ignoreTypeToken = true;
-                  logger.info("subplace not found: "+nameType[0]+" in: "+text);
+                  ignoreTypeToken = true; // no sense matching the type if we couldn't match the name
+                  if (errorHandler != null && !errorLogged && containsNonNoiseWords(words)) {
+                     errorHandler.tokenNotFound(text, levelWords, level, removeChildIds(currentIds));
+                     errorLogged = true;
+                  }
+                  ids = currentIds;
+                  currentIds = previousIds;
                }
                else {
+                  lastFoundLevel = level;
                   ids = matchingIds;
                }
             }
+            else {
+               lastFoundLevel = level;
+            }
 
-            // if we still have multiple matches, filter type
+            // if we still have multiple matches, filter on type
             if (ids.size() > 1 && nameType[1] != null && !ignoreTypeToken) {
                List<Integer> matchingIds = filterTypeMatches(nameType[1], ids);
                // didn't find a type match; log and ignore
                if (matchingIds.size() == 0) {
-                  logger.info("type not found: "+nameType[1]+" in: "+text);
+                  if (errorHandler != null && !errorLogged) {
+                     errorHandler.typeNotFound(text, levelWords, level, removeChildIds(ids));
+                     errorLogged = true;
+                  }
                }
                else {
                   ids = matchingIds;
                }
             }
 
+            previousIds = currentIds;
             currentIds = ids;
             currentNameToken = nameType[0];
          }
       }
 
       Place result = null;
-      // if we have no matches, return empty
+      // if we have no matches, return null
       if (currentIds == null) {
-         if (levelWords.size() > 0) {
-            logger.info("no place found: "+text);
+         // log this even if we've logged another error earlier
+         if (errorHandler != null && containsNonNoiseLevels(levelWords)) {
+            errorHandler.placeNotFound(text, levelWords);
          }
-         result = new Place();
       }
       else {
          // if we have multiple matches and a default country, filter subplaces of the default country
          if (currentIds.size() > 1 && defaultCountry != null && defaultCountry.length() > 0) {
-            // TODO
+            // TODO - handle default country
+
+         }
+
+         // remove children if we have the parents
+         if (currentIds.size() > 1) {
+            currentIds = removeChildIds(currentIds);
          }
 
          // if we have still have multiple matches, score them and return the highest-scoring one
          if (currentIds.size() > 1) {
             double highestScore = Double.NEGATIVE_INFINITY;
             for (int id : currentIds) {
-               Place p = lookupPlace(id);
+               Place p = getPlace(id);
                double score = scoreMatch(currentNameToken, p);
                if (score > highestScore) {
                   result = p;
                   highestScore = score;
                }
             }
+            if (errorHandler != null && !errorLogged) {
+               errorHandler.ambiguous(text, levelWords, currentIds, result);
+               errorLogged = true;
+            }
          }
          else {
-            result = lookupPlace(currentIds.get(0));
+            result = getPlace(currentIds.get(0));
          }
       }
 
-      // We don't normally set
+      // in REQUIRED mode, return null if we don't match the last level
+      if (mode == Mode.REQUIRED && lastFoundLevel != 0) {
+         result = null;
+      }
+      // in NEW mode, return "next-to-last-level-found, best match"
+      else if (result != null && mode == Mode.NEW && lastFoundLevel > 0) {
+         Place p = new Place();
+         p.setStandardizer(this);
+         p.setName(generatePlaceName(levelWords.get(lastFoundLevel-1)));
+         p.setLocatedInId(result.getId());
+         result = p;
+      }
+
       return result;
    }
 
    public Place standardize(String text) {
-      return standardize(text, null);
+      return standardize(text, null, Mode.BEST);
    }
 }

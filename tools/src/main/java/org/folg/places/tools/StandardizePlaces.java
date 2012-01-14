@@ -16,6 +16,7 @@
 
 package org.folg.places.tools;
 
+import org.folg.places.standardize.ErrorHandler;
 import org.folg.places.standardize.Place;
 import org.folg.places.standardize.Standardizer;
 import org.kohsuke.args4j.CmdLineException;
@@ -24,12 +25,15 @@ import org.kohsuke.args4j.Option;
 import org.xml.sax.SAXParseException;
 
 import java.io.*;
+import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * User: dallan
  * Date: 1/11/12
  */
-public class StandardizePlaces {
+public class StandardizePlaces implements ErrorHandler {
+   private static Logger logger = Logger.getLogger("org.folg.places.standardize");
 
    @Option(name = "-i", required = true, usage = "places file in")
    private File placesIn;
@@ -40,23 +44,157 @@ public class StandardizePlaces {
    @Option(name = "-n", required = false, usage = "number of places to standardize")
    private int maxPlaces = 0;
 
+   @Option(name = "-ao", required = false, usage = "ambiguous places out")
+   private File ambiguousOut = null;
+
+   @Option(name = "-mo", required = false, usage = "missing places out")
+   private File missingOut = null;
+
+   @Option(name = "-po", required = false, usage = "missing phrases out")
+   private File phraseOut = null;
+
+   @Option(name = "-to", required = false, usage = "missing types out")
+   private File typeOut = null;
+
+   @Option(name = "-no", required = false, usage = "not found places out")
+   private File notFoundOut = null;
+
+   @Option(name = "-so", required = false, usage = "skipped levels out")
+   private File skippedOut = null;
+
    private Standardizer standardizer;
+   private PrintWriter ambiguousWriter = null;
+   private PrintWriter missingWriter = null;
+   private PrintWriter phraseWriter = null;
+   private PrintWriter typeWriter = null;
+   private PrintWriter notFoundWriter = null;
+   private PrintWriter skippedWriter = null;
 
    public StandardizePlaces() {
       standardizer = Standardizer.getInstance();
+      standardizer.setErrorHandler(this);
+   }
+
+   private String generatePlaceName(List<List<String>> levels, int levelNumber) {
+      StringBuilder buf = new StringBuilder();
+      for (int i = levelNumber; i < levels.size(); i++) {
+         if (buf.length() > 0) {
+            buf.append(", ");
+         }
+         buf.append(standardizer.generatePlaceName(levels.get(i)));
+      }
+      return buf.toString();
+   }
+
+   private static boolean hasDigit(String s) {
+      for (int i = 0; i < s.length(); i++) {
+         char c = s.charAt(i);
+         if (c >= '0' && c <= '9') {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   private static boolean hasDigit(List<String> words) {
+      for (String word : words) {
+         if (hasDigit(word)) {
+            return true;
+         }
+      }
+      return false;
+   }
+
+   @Override
+   public void tokenNotFound(String text, List<List<String>> levels, int levelNumber, List<Integer> matchedParentIds) {
+      List<String> words = levels.get(levelNumber);
+
+      // log only tokens without numbers
+      if (words.size() > 0 && !hasDigit(words)) {
+         String levelName = standardizer.generatePlaceName(words);
+         if (missingWriter != null && matchedParentIds != null && matchedParentIds.size() == 1) {
+            // we don't want to create places for every single church and hospital
+            if (!levelName.endsWith(" Church") && !levelName.endsWith(" Hospital")) {
+               String fullName = levelName +", "+
+                                 standardizer.getPlace(matchedParentIds.get(0)).getFullName();
+               missingWriter.println(text+" | "+fullName);
+            }
+         }
+         if (phraseWriter != null) {
+            phraseWriter.println(levelName);
+         }
+      }
+   }
+
+   @Override
+   public void skippingParentLevel(String text, List<List<String>> levels, int levelNumber, List<Integer> matchedPlaceIds) {
+      List<String> words = levels.get(levelNumber);
+
+      // log only children without numbers
+      if (words.size() > 0 && !hasDigit(words)) {
+         // build place with all levels from here up
+         String hereUp = generatePlaceName(levels, levelNumber);
+         // just write out the first place in the list
+         Place p = standardizer.getPlace(matchedPlaceIds.get(0));
+         skippedWriter.println(hereUp+" | "+p.getFullName());
+      }
+   }
+
+   @Override
+   public void typeNotFound(String text, List<List<String>> levels, int levelNumber, List<Integer> matchedPlaceIds) {
+      if (typeWriter != null) {
+         typeWriter.println(text);
+      }
+   }
+
+   @Override
+   public void ambiguous(String text, List<List<String>> levels, List<Integer> matchedPlaceIds, Place topPlace) {
+      if (ambiguousWriter != null) {
+         ambiguousWriter.println(text+" | "+topPlace.getFullName());
+      }
+   }
+
+   @Override
+   public void placeNotFound(String text, List<List<String>> levels) {
+      if (notFoundWriter != null) {
+         notFoundWriter.println(text);
+      }
    }
 
    private void doMain() throws SAXParseException, IOException {
       BufferedReader bufferedReader = new BufferedReader(new FileReader(placesIn));
       PrintWriter placesWriter = placesOut != null ? new PrintWriter(placesOut) : new PrintWriter(System.out);
+      if (ambiguousOut != null) {
+         ambiguousWriter = new PrintWriter(ambiguousOut);
+      }
+      if (missingOut != null) {
+         missingWriter = new PrintWriter(missingOut);
+      }
+      if (phraseOut != null) {
+         phraseWriter = new PrintWriter(phraseOut);
+      }
+      if (typeOut != null) {
+         typeWriter = new PrintWriter(typeOut);
+      }
+      if (notFoundOut != null) {
+         notFoundWriter = new PrintWriter(notFoundOut);
+      }
+      if (skippedOut != null) {
+         skippedWriter = new PrintWriter(skippedOut);
+      }
 
       int lineCount = 0;
       while (bufferedReader.ready()) {
          String nextLine = bufferedReader.readLine();
 
          Place p = standardizer.standardize(nextLine);
-         placesWriter.println(p.getFullName()+" | "+nextLine);
+         if (p != null) {
+            placesWriter.println(nextLine+" | "+p.getFullName());
+         }
 
+         if (lineCount % 100000 == 0) {
+            System.out.print(".");
+         }
          if (++lineCount == maxPlaces) {
             break;
          }
@@ -64,6 +202,25 @@ public class StandardizePlaces {
 
       bufferedReader.close();
       placesWriter.close();
+
+      if (ambiguousWriter != null) {
+         ambiguousWriter.close();
+      }
+      if (missingWriter != null) {
+         missingWriter.close();
+      }
+      if (phraseWriter != null) {
+         phraseWriter.close();
+      }
+      if (typeWriter != null) {
+         typeWriter.close();
+      }
+      if (notFoundWriter != null) {
+         notFoundWriter.close();
+      }
+      if (skippedWriter != null) {
+         skippedWriter.close();
+      }
    }
 
    public static void main(String[] args) throws SAXParseException, IOException {

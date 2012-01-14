@@ -128,7 +128,7 @@ public class Place {
          buf.append(getName());
          int locatedIn = getLocatedInId();
          while (locatedIn > 0) {
-            Place p = standardizer.lookupPlace(locatedIn);
+            Place p = standardizer.getPlace(locatedIn);
             buf.append(", ");
             buf.append(p.getName());
             locatedIn = p.getLocatedInId();

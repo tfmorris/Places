@@ -19,6 +19,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.*;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Normalize a place text
@@ -37,6 +39,7 @@ public class Normalizer {
       try {
          Properties props = new Properties();
          props.load(new InputStreamReader(getClass().getClassLoader().getResourceAsStream("normalizer.properties"), "UTF8"));
+         // build character replacements
          characterReplacements = new HashMap<Character, String>();
          for (String replacement : props.getProperty("characterReplacements").split(",")) {
             characterReplacements.put(replacement.charAt(0), replacement.substring(2));
@@ -46,6 +49,14 @@ public class Normalizer {
       }
    }
 
+   private static final Pattern USA_PATTERN = Pattern.compile("\\bU[,. ]+S[,. ]+A\\b", Pattern.CASE_INSENSITIVE);
+   // run some regexes over text to clean it up
+   private String clean(String text) {
+      Matcher m = USA_PATTERN.matcher(text);
+      text = m.replaceAll("united states");
+      return text;
+   }
+
    /**
     * Tokenize name by removing diacritics, lowercasing, and splitting on non alphanumeric characters
     *
@@ -53,13 +64,13 @@ public class Normalizer {
     * @return tokenized place levels
     */
    public NormalizeResults tokenize(String text) {
-
       NormalizeResults normalizeResults = new NormalizeResults();
 
-      // remove diacritics, lowercase, split on delimiters, remove non-alphanumeric?
       List<List<String>> levels = new ArrayList<List<String>>();
 
       StringBuilder numBuf = new StringBuilder();
+
+      text = clean(text);
 
       // find the last letter
       int lastPos = text.length()-1;
@@ -141,6 +152,8 @@ public class Normalizer {
     */
    public String normalize(String text) {
       StringBuilder buf = new StringBuilder();
+
+      text = clean(text);
 
       for (int i = 0; i < text.length(); i++) {
          char c = text.charAt(i);
