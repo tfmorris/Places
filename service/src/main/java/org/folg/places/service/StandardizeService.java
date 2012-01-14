@@ -42,7 +42,7 @@ public class StandardizeService {
    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
    @Path("{text}/{defaultCountry}")
    public Place get(@PathParam("text") String text, @PathParam("defaultCountry") String defaultCountry) {
-      Place result = Standardizer.getInstance().standardize(text, defaultCountry, Standardizer.Mode.BEST);
+      Place result = Standardizer.getInstance().standardize(text, defaultCountry);
       return result;
    }
 }

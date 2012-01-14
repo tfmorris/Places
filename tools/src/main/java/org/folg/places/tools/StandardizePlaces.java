@@ -41,8 +41,14 @@ public class StandardizePlaces implements ErrorHandler {
    @Option(name = "-o", required = false, usage = "standardized places out")
    private File placesOut = null;
 
+   @Option(name = "-a", required = false, usage = "print also-located-in places")
+   private boolean printAlsoLocatedIns = false;
+
    @Option(name = "-n", required = false, usage = "number of places to standardize")
    private int maxPlaces = 0;
+
+   @Option(name = "-t", required = false, usage = "number of results to show.  default is to only show the top result")
+   private int numResults = 0;
 
    @Option(name = "-ao", required = false, usage = "ambiguous places out")
    private File ambiguousOut = null;
@@ -187,9 +193,20 @@ public class StandardizePlaces implements ErrorHandler {
       while (bufferedReader.ready()) {
          String nextLine = bufferedReader.readLine();
 
-         Place p = standardizer.standardize(nextLine);
-         if (p != null) {
-            placesWriter.println(nextLine+" | "+p.getFullName());
+         if (numResults == 0) {
+            Place p = standardizer.standardize(nextLine);
+            if (p != null) {
+               placesWriter.println(nextLine + " | "+ p.getFullName());
+               printAlsoLocatedIns(placesWriter, p);
+            }
+         }
+         else {
+            List<Standardizer.PlaceScore> results = standardizer.standardize(nextLine, numResults);
+            placesWriter.println(nextLine);
+            for (Standardizer.PlaceScore ps : results) {
+               placesWriter.println("\t" + ps.getPlace().getFullName());
+               printAlsoLocatedIns(placesWriter, ps.getPlace());
+            }
          }
 
          if (lineCount % 100000 == 0) {
@@ -220,6 +237,23 @@ public class StandardizePlaces implements ErrorHandler {
       }
       if (skippedWriter != null) {
          skippedWriter.close();
+      }
+   }
+
+   private void printAlsoLocatedIns(PrintWriter placesWriter, Place p) {
+      int[] alsoLocatedInIds = p.getAlsoLocatedInIds();
+      if ((printAlsoLocatedIns) && (alsoLocatedInIds != null) && (alsoLocatedInIds.length > 0)) {
+         StringBuffer alsoLocatedStrs = new StringBuffer();
+         for (int indx = 0; indx < alsoLocatedInIds.length; indx++) {
+            int alsoLocatedInId = alsoLocatedInIds[indx];
+            Place alsoLocatedPlace = standardizer.getPlace(alsoLocatedInId);
+            if (alsoLocatedStrs.length() > 0) {
+               alsoLocatedStrs.append(", ");
+            }
+            alsoLocatedStrs.append(alsoLocatedPlace.getFullName());
+         }
+         placesWriter.println("\talso located in = " + alsoLocatedStrs);
+
       }
    }
 

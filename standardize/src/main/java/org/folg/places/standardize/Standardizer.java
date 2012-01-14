@@ -50,6 +50,24 @@ public class Standardizer {
       return standardizer;
    }
 
+   public static class PlaceScore {
+      private Place place;
+      private double score;
+
+      public PlaceScore(Place place, double score) {
+         this.place = place;
+         this.score = score;
+      }
+
+      public Place getPlace() {
+         return place;
+      }
+
+      public double getScore() {
+         return score;
+      }
+   }
+
    private static ComboPooledDataSource staticDS = null;
    private static synchronized DataSource getDataSource(String driverClass, String jdbcUrl, String user, String password) {
      if (staticDS == null) {
@@ -443,7 +461,7 @@ public class Standardizer {
       return currentIds;
    }
 
-   public Place standardize(String text, String defaultCountry, Mode mode) {
+   public List<PlaceScore> standardize(String text, String defaultCountry, Mode mode, int numResults) {
       List<List<String>> levelWords = normalizer.tokenize(text).getLevels();
       List<Integer> currentIds = null;
       List<Integer> previousIds = null;
@@ -549,13 +567,16 @@ public class Standardizer {
          }
       }
 
-      Place result = null;
-      // if we have no matches, return null
+      List<PlaceScore> results = new ArrayList<PlaceScore>();
+      // if we have no matches, return empty
       if (currentIds == null) {
          // log this even if we've logged another error earlier
          if (errorHandler != null && containsNonNoiseLevels(levelWords)) {
             errorHandler.placeNotFound(text, levelWords);
          }
+      }
+      else if (mode == mode.REQUIRED && lastFoundLevel != 0) {
+         // don't return any results if we didn't match the last level in this mode
       }
       else {
          // if we have multiple matches and a default country, filter subplaces of the default country
@@ -569,44 +590,56 @@ public class Standardizer {
             currentIds = removeChildIds(currentIds);
          }
 
-         // if we have still have multiple matches, score them and return the highest-scoring one
+         // if we have still have multiple matches, score them and return the highest-scoring
          if (currentIds.size() > 1) {
-            double highestScore = Double.NEGATIVE_INFINITY;
             for (int id : currentIds) {
                Place p = getPlace(id);
-               double score = scoreMatch(currentNameToken, p);
-               if (score > highestScore) {
-                  result = p;
-                  highestScore = score;
-               }
+               results.add(new PlaceScore(p, scoreMatch(currentNameToken, p)));
             }
+            Collections.sort(results, new Comparator<PlaceScore>() {
+               @Override
+               public int compare(PlaceScore ps1, PlaceScore ps2) {
+                  return Double.compare(ps2.getScore(), ps1.getScore());
+               }
+            });
+            while (results.size() > numResults) {
+               results.remove(results.size()-1);
+            }
+
             if (errorHandler != null && !errorLogged) {
-               errorHandler.ambiguous(text, levelWords, currentIds, result);
+               errorHandler.ambiguous(text, levelWords, currentIds, results.get(0).getPlace());
                errorLogged = true;
             }
          }
          else {
-            result = getPlace(currentIds.get(0));
+            Place p = getPlace(currentIds.get(0));
+            results.add(new PlaceScore(p, scoreMatch(currentNameToken, p)));
          }
       }
 
-      // in REQUIRED mode, return null if we don't match the last level
-      if (mode == Mode.REQUIRED && lastFoundLevel != 0) {
-         result = null;
-      }
-      // in NEW mode, return "next-to-last-level-found, best match"
-      else if (result != null && mode == Mode.NEW && lastFoundLevel > 0) {
+      // in NEW mode, return "next-to-last-level-found, best match" if we didn't match the last level
+      if (results.size() > 0 && mode == Mode.NEW && lastFoundLevel > 0) {
          Place p = new Place();
          p.setStandardizer(this);
          p.setName(generatePlaceName(levelWords.get(lastFoundLevel-1)));
-         p.setLocatedInId(result.getId());
-         result = p;
+         p.setLocatedInId(results.get(0).getPlace().getId());
+         results.clear();
+         results.add(new PlaceScore(p, 0));
       }
 
-      return result;
+      return results;
+   }
+
+   public List<PlaceScore> standardize(String text, int numResults) {
+      return standardize(text, null, Mode.BEST, numResults);
    }
 
    public Place standardize(String text) {
-      return standardize(text, null, Mode.BEST);
+      return standardize(text, null);
+   }
+
+   public Place standardize(String text, String defaultCountry) {
+      List<PlaceScore> results = standardize(text, defaultCountry, Mode.BEST, 1);
+      return results.size() > 0 ? results.get(0).getPlace() : null;
    }
 }
