@@ -33,7 +33,7 @@ import java.util.logging.Logger;
  * Date: 1/11/12
  */
 public class StandardizePlaces implements ErrorHandler {
-   private static Logger logger = Logger.getLogger("org.folg.places.standardize");
+   private static Logger logger = Logger.getLogger("org.folg.places.tools");
 
    @Option(name = "-i", required = true, usage = "places file in")
    private File placesIn;
@@ -156,7 +156,7 @@ public class StandardizePlaces implements ErrorHandler {
    @Override
    public void ambiguous(String text, List<List<String>> levels, List<Integer> matchedPlaceIds, Place topPlace) {
       if (ambiguousWriter != null) {
-         ambiguousWriter.println(text+" | "+topPlace.getFullName());
+         ambiguousWriter.println(text.replaceFirst("^[, <?]+", "").replaceFirst("[, >?]+$",""));
       }
    }
 

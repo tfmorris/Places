@@ -17,7 +17,6 @@
 package org.folg.places.tools;
 
 import org.apache.commons.lang.math.NumberUtils;
-import org.folg.places.standardize.NormalizeResults;
 import org.folg.places.standardize.Normalizer;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
@@ -64,9 +63,6 @@ public class AnalyzePlaces {
    private CountsCollector tokenizerPlacesCountCC;
    private int totalTokenizerPlacesCount;
 
-   private CountsCollector tokenizerNumbersCountCC;
-   private int totalTokenizerNumbersCount;
-
    //The total number of lines to test in the places file
    //when the tokenizer is turned on things get significantly slower so
    private int TOKENIZE_EVERY_N = 1;
@@ -89,10 +85,6 @@ public class AnalyzePlaces {
       if (useTokenizer) {
          tokenizerPlacesCountCC = new CountsCollector();
          totalTokenizerPlacesCount = 0;
-
-         tokenizerNumbersCountCC = new CountsCollector();
-         totalTokenizerNumbersCount = 0;
-
       }
    }
 
@@ -152,14 +144,7 @@ public class AnalyzePlaces {
          }
 
          if ( (useTokenizer) && (lineCount % TOKENIZE_EVERY_N == 0) ){
-            NormalizeResults normalizedResults = normalizer.tokenize(nextLine);
-            String endingNumbers = normalizedResults.getEndingNumbers();
-            if (endingNumbers != null) {
-               tokenizerNumbersCountCC.add(endingNumbers);
-               totalTokenizerNumbersCount++;
-            }
-
-            List<List<String>> levels = normalizedResults.getLevels();
+            List<List<String>> levels = normalizer.tokenize(nextLine);
             for (List<String> levelWords : levels) {
                tokenizerPlacesCountCC.addAll(levelWords);
                totalTokenizerPlacesCount += levelWords.size();
@@ -187,10 +172,6 @@ public class AnalyzePlaces {
       getEndingsOfPlacesCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "endingsCount.txt")) : new PrintWriter(System.out));
 
       if (useTokenizer) {
-         System.out.println("Indexed a total of " + totalTokenizerNumbersCount + " normalized endings.");
-         System.out.println("Found a total of " + getTokenizerNumbersCountCC().size() + " normalized endings.");
-         getTokenizerNumbersCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "normalizedEndingsCount.txt")) : new PrintWriter(System.out));
-
          System.out.println("Indexed a total of " + totalTokenizerPlacesCount + " normalized words.");
          System.out.println("Found a total of " + getTokenizerPlacesCountCC().size() + " normalized words.");
          getTokenizerPlacesCountCC().writeSorted(false, 1, analysisPlacesOut != null ? new PrintWriter(new File(analysisPlacesOut, "normalizedWordsCount.txt")) : new PrintWriter(System.out));
@@ -216,10 +197,6 @@ public class AnalyzePlaces {
 
    public CountsCollector getTokenizerPlacesCountCC() {
       return tokenizerPlacesCountCC;
-   }
-
-   public CountsCollector getTokenizerNumbersCountCC() {
-      return tokenizerNumbersCountCC;
    }
 
    public static void main(String[] args) throws SAXParseException, IOException {

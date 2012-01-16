@@ -42,6 +42,8 @@ public class Standardizer {
     */
    public static enum Mode { BEST, REQUIRED, NEW };
 
+   public static int MAX_LEVELS = 4;
+
    private static Logger logger = Logger.getLogger("org.folg.places.standardize");
    private static int USA_ID = 1500;
    private static Standardizer standardizer = new Standardizer();
@@ -119,19 +121,25 @@ public class Standardizer {
    private Set<String> typeWords = null;
    private Map<String,String> abbreviations = null;
    private Set<String> noiseWords = null;
-   private Set<Integer> expectedCountries = null;
    private Map<Integer,Place> placeIndex = null;
    private Map<String,Integer[]> wordIndex = null;
    private DataSource dataSource = null;
    private MemcachedClient memcachedClient = null;
    private String memcacheKeyPrefix = null;
    private int memcacheExpiration = 0;
+   private Set<Integer> largeCountries = null;
+   private Set<Integer> mediumCountries = null;
+   private double primaryMatchWeight = 0;
+   private Double[] largeCountryLevelWeights = null;
+   private Double[] mediumCountryLevelWeights = null;
+   private Double[] smallCountryLevelWeights = null;
    private ErrorHandler errorHandler = null;
 
    private Standardizer() {
       normalizer = Normalizer.getInstance();
 
       Reader indexReader = null;
+      Reader matchCountsReader = null;
 
       try {
          // read properties
@@ -151,11 +159,22 @@ public class Standardizer {
          // read noise words
          noiseWords = new HashSet<String>(Arrays.asList(props.getProperty("noiseWords").split(",")));
 
-         // read expectedCountries
-         expectedCountries = new HashSet<Integer>();
-         for (String expectedCountry : props.getProperty("expectedCountries").split(",")) {
-            expectedCountries.add(Integer.parseInt(expectedCountry));
-         }
+         // read large countries
+         largeCountries = toIntegerSet(props.getProperty("largeCountries"));
+
+         // read medium countries
+         mediumCountries = toIntegerSet(props.getProperty("mediumCountries"));
+
+         // read large country level weights
+         largeCountryLevelWeights = toDoubleArray(props.getProperty("largeCountryLevelWeights"));
+
+         // read large country level weights
+         mediumCountryLevelWeights = toDoubleArray(props.getProperty("mediumCountryLevelWeights"));
+
+         // read large country level weights
+         smallCountryLevelWeights = toDoubleArray(props.getProperty("smallCountryLevelWeights"));
+
+         primaryMatchWeight = Double.parseDouble(props.getProperty("primaryMatchWeight"));
 
          // initialize db+memcache
          InputStream propStream = getClass().getClassLoader().getResourceAsStream("db_memcache.properties");
@@ -193,9 +212,11 @@ public class Standardizer {
       }
       catch (IOException e) {
          throw new RuntimeException("Error reading file:" + e.getMessage());
-      }
-      finally {
+      } finally {
          try {
+            if (matchCountsReader != null) {
+               matchCountsReader.close();
+            }
             if (indexReader != null) {
                indexReader.close();
             }
@@ -206,9 +227,26 @@ public class Standardizer {
       }
    }
 
+   private Set<Integer> toIntegerSet(String value) {
+      Set<Integer> result = new HashSet<Integer>();
+      for (String field : value.split(",")) {
+         result.add(Integer.parseInt(field));
+      }
+      return result;
+   }
+
+   private Double[] toDoubleArray(String value) {
+      String[] fields = value.split(",");
+      Double[] result = new Double[fields.length];
+      for (int i = 0; i < fields.length; i++) {
+         result[i] = Double.parseDouble(fields[i]);
+      }
+      return result;
+   }
+
    /**
     * Read the word index
-    * You would not normally call this function. Used in testing and evaluation
+    * You would not normally call this function. Used in testing
     */
    public void readWordIndex(Reader reader) throws IOException {
       wordIndex = new HashMap<String, Integer[]>();
@@ -228,7 +266,7 @@ public class Standardizer {
 
    /**
     * Read the place index
-    * You would not normally call this function. Used in testing and evaluation
+    * You would not normally call this function. Used in testing
     */
    public void readPlaceIndex(Reader reader) throws IOException {
       placeIndex = new HashMap<Integer, Place>();
@@ -363,12 +401,28 @@ public class Standardizer {
 
    private double scoreMatch(String nameToken, Place p) {
       String normalizedName = normalizer.normalize(p.getName());
-      int primaryNameMatch = (normalizedName.indexOf(nameToken) >= 0 ? 1 : 0);
+      boolean isPrimaryNameMatch = normalizedName.indexOf(nameToken) >= 0;
       int level = p.getLevel();
-      int expectedCountry = (expectedCountries.contains(p.getCountry()) ? 1 : 0);
+      int countryId = p.getCountry();
+      Double[] weights;
 
-      // TODO -- we need to learn these weights ideally, come up with better features, etc.
-      return primaryNameMatch * 5 + (6 - level) * 10 + expectedCountry * 2;
+      if (largeCountries.contains(countryId)) {
+         weights = largeCountryLevelWeights;
+      }
+      else if (mediumCountries.contains(countryId)) {
+         weights = mediumCountryLevelWeights;
+      }
+      else {
+         weights = smallCountryLevelWeights;
+      }
+
+      double score = weights[Math.min(MAX_LEVELS,level)-1];
+
+      if (isPrimaryNameMatch) {
+         score += primaryMatchWeight;
+      }
+
+      return score;
    }
 
    public boolean isTypeWord(String word) {
@@ -462,7 +516,7 @@ public class Standardizer {
    }
 
    public List<PlaceScore> standardize(String text, String defaultCountry, Mode mode, int numResults) {
-      List<List<String>> levelWords = normalizer.tokenize(text).getLevels();
+      List<List<String>> levelWords = normalizer.tokenize(text);
       List<Integer> currentIds = null;
       List<Integer> previousIds = null;
       String currentNameToken = null;
@@ -515,11 +569,23 @@ public class Standardizer {
             boolean ignoreTypeToken = false;
             if (currentIds != null) {
                List<Integer> matchingIds = filterSubplaceMatches(ids, currentIds);
-               // didn't find any children; try ignoring the parent level and attaching to the grandparent level
-               if (matchingIds.size() == 0 && previousIds != null && previousIds.size() > 0 && isSkippable(currentIds)) {
-                  matchingIds = filterSubplaceMatches(ids, previousIds);
-                  if (matchingIds.size() > 0) {
-                     currentIds = previousIds;
+               // didn't find any children, try skipping over the previous level
+               if (matchingIds.size() == 0 && isSkippable(currentIds)) {
+                  // try attaching to the grandparent level if there is one
+                  if (previousIds != null && previousIds.size() > 0) {
+                     matchingIds = filterSubplaceMatches(ids, previousIds);
+                     if (matchingIds.size() > 0) {
+                        currentIds = previousIds;
+                        if (errorHandler != null && !errorLogged) {
+                           errorHandler.skippingParentLevel(text, levelWords, level, removeChildIds(matchingIds));
+                           errorLogged = true;
+                        }
+                     }
+                  }
+                  // else if there is no grandparent level and we matched non-skippable places, go with what we just found
+                  else if (!isSkippable(ids)) {
+                     matchingIds = ids;
+                     currentIds = null;
                      if (errorHandler != null && !errorLogged) {
                         errorHandler.skippingParentLevel(text, levelWords, level, removeChildIds(matchingIds));
                         errorLogged = true;
@@ -599,9 +665,15 @@ public class Standardizer {
             Collections.sort(results, new Comparator<PlaceScore>() {
                @Override
                public int compare(PlaceScore ps1, PlaceScore ps2) {
+                  // make sort order deterministic
+                  if (ps2.getScore() == ps1.getScore()) {
+                     return ps1.getPlace().getId() < ps2.getPlace().getId() ? -1 : 1;
+                  }
                   return Double.compare(ps2.getScore(), ps1.getScore());
                }
             });
+
+            // remove lowest-scoring results
             while (results.size() > numResults) {
                results.remove(results.size()-1);
             }

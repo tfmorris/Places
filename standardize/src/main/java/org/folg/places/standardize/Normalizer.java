@@ -49,44 +49,22 @@ public class Normalizer {
       }
    }
 
-   private static final Pattern USA_PATTERN = Pattern.compile("\\bU[,. ]+S[,. ]+A\\b", Pattern.CASE_INSENSITIVE);
-   // run some regexes over text to clean it up
-   private String clean(String text) {
-      Matcher m = USA_PATTERN.matcher(text);
-      text = m.replaceAll("united states");
-      return text;
-   }
-
    /**
     * Tokenize name by removing diacritics, lowercasing, and splitting on non alphanumeric characters
     *
     * @param text string to tokenize
     * @return tokenized place levels
     */
-   public NormalizeResults tokenize(String text) {
-      NormalizeResults normalizeResults = new NormalizeResults();
-
+   public List<List<String>> tokenize(String text) {
       List<List<String>> levels = new ArrayList<List<String>>();
-
-      StringBuilder numBuf = new StringBuilder();
-
-      text = clean(text);
 
       // find the last letter
       int lastPos = text.length()-1;
       while (lastPos >= 0) {
          char c = text.charAt(lastPos);
 
-         // not sure why we're keeping ending numbers?
-         if (c >= '0' && c <= '9') {
-            numBuf.append(c);
-         } else if (c == ',') {
-            if (numBuf.length() > 0) {
-               normalizeResults.setEndingNumbers(numBuf.toString());
-               break;
-            }
-         } else if ((c >= 'A' && c <= 'z') || (c > 127)) {
-            //if we hit letters before we hit a comma then the numbers contains a word and we want to keep it
+         // break on letter (assume any character > 127 is alphabetic
+         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c > 127)) {
             break;
          }
          lastPos--;
@@ -139,9 +117,7 @@ public class Normalizer {
          levels.add(levelWords);
       }
 
-      normalizeResults.setLevels(levels);
-
-      return normalizeResults;
+      return levels;
    }
 
    /**
@@ -152,8 +128,6 @@ public class Normalizer {
     */
    public String normalize(String text) {
       StringBuilder buf = new StringBuilder();
-
-      text = clean(text);
 
       for (int i = 0; i < text.length(); i++) {
          char c = text.charAt(i);
