@@ -49,7 +49,7 @@ public class AnalyzeMatches {
 
       MatchCount() {
          countryId = 0;
-         levelCounts = new int[4];
+         levelCounts = new int[Standardizer.MAX_LEVELS];
          for (int i = 0; i < levelCounts.length; i++) {
             levelCounts[i] = 0;
          }
@@ -63,8 +63,6 @@ public class AnalyzeMatches {
    private void doMain() throws SAXParseException, IOException {
       BufferedReader reader = new BufferedReader(new FileReader(placesIn));
       Map<String,MatchCount> matchCounts = new TreeMap<String, MatchCount>();
-      int primaryNameMatches = 0;
-      int alternateNameMatches = 0;
 
       // standardize all places + calculate matchCounts
       while (reader.ready()) {
@@ -89,17 +87,22 @@ public class AnalyzeMatches {
                matchCount.countryId = countryId;
                matchCounts.put(countryName, matchCount);
             }
-            matchCount.levelCounts[Math.min(4,level)-1]++;
+            matchCount.levelCounts[Math.min(Standardizer.MAX_LEVELS,level)-1]++;
          }
       }
 
       // generate the match counts file
       PrintWriter writer = new PrintWriter(countsOut);
-      writer.println(primaryNameMatches+","+alternateNameMatches);
       for (String countryName : matchCounts.keySet()) {
          MatchCount mc = matchCounts.get(countryName);
-         writer.println(countryName+","+mc.countryId+","+
-                        mc.levelCounts[0]+","+mc.levelCounts[1]+","+mc.levelCounts[2]+","+mc.levelCounts[3]);
+         StringBuilder buf = new StringBuilder();
+         int total = 0;
+         for (int i = 0; i < Standardizer.MAX_LEVELS; i++) {
+            buf.append(",");
+            total += mc.levelCounts[i];
+            buf.append(mc.levelCounts[i]);
+         }
+         writer.println(countryName+","+mc.countryId+","+total+buf.toString());
       }
 
       writer.close();
