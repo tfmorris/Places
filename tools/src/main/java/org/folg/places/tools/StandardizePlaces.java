@@ -190,6 +190,7 @@ public class StandardizePlaces implements ErrorHandler {
       }
 
       int lineCount = 0;
+      long startMillis = System.currentTimeMillis();
       while (bufferedReader.ready()) {
          String nextLine = bufferedReader.readLine();
 
@@ -216,6 +217,8 @@ public class StandardizePlaces implements ErrorHandler {
             break;
          }
       }
+      long endMillis = System.currentTimeMillis();
+      System.out.println("Number of places="+lineCount+" time (seconds)="+(endMillis-startMillis)/1000);
 
       bufferedReader.close();
       placesWriter.close();
