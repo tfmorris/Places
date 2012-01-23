@@ -70,7 +70,8 @@ Tools
 
 The tools (except for the service of course) can be run using
 `mvn exec:java -Dexec.mainClass=org.folg.places.tools.<tool name> -Dexec.args="args"`
-The service modeule generates a war file that can be run using tomcat, jetty, etc.
+
+The service module generates a war file that can be run using tomcat, jetty, etc.
 
 Other resources
 ---------------
