@@ -50,6 +50,28 @@ small sample.
 Interestingly, this finding is similar to Nature's finding that the community-created Wikipedia
 and the professionally-managed Encyclopedia Britannica had roughly the same number of errors.
 
+Building
+--------
+
+You'll need maven. `mvn install` creates the normal jar files as well as ones with all dependencies
+
+Tools
+-----
+
+* _AnalyzeMatches.java_ standardizes a file of place texts and counts the number of matches by country and level.
+
+* _AnalyzePlaces.java_ analyzes a file of place texts and reports various statistics.
+
+* _CompareMatches.java_ compares how this system standardizes a file of place texts to another.
+
+* _StandardizePlaces.java_ standarizes a file of place texts and reports various types of problems in standardization.
+
+* _Service module_ provides a simple REST-based interface to the place standardizer.
+
+The tools (except for the service of course) can be run using
+`mvn exec:java -Dexec.mainClass=org.folg.places.tools.<tool name> -Dexec.args="args"`
+The service modeule generates a war file that can be run using tomcat, jetty, etc.
+
 Other resources
 ---------------
 
