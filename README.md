@@ -69,7 +69,7 @@ Tools
 * _Service module_ provides a simple REST-based interface to the place standardizer.
 
 The tools (except for the service of course) can be run using
-`mvn exec:java -Dexec.mainClass=org.folg.places.tools.<tool name> -Dexec.args="args"`
+`mvn exec:java -Dexec.mainClass=org.folg.places.tools.<tool name> -Dexec.args="<args>"`
 
 The service module generates a war file that can be run using tomcat, jetty, etc.
 
@@ -104,3 +104,8 @@ adding alternate names and new places to the WeRelate place wiki when necessary.
 to WeRelate, we can track which place texts in those GEDCOMs don't get matched.
 Someone could review the frequent non-matching place texts and create pages for them
 on the WeRelate place wiki if they are indeed real places.
+
+Other projects
+--------------
+
+Check out [other genealogy projects[(https://github.com/DallanQ)
