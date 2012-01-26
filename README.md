@@ -108,4 +108,4 @@ on the WeRelate place wiki if they are indeed real places.
 Other projects
 --------------
 
-Check out [other genealogy projects[(https://github.com/DallanQ)
+Check out [other genealogy projects](https://github.com/DallanQ)
